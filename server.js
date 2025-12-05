@@ -37,7 +37,7 @@ app.use(morgan("dev"));
 //     allowedHeaders: ["Content-Type", "Authorization"],
 //   })
 // );
-app.cors();
+app.use(cors());
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
