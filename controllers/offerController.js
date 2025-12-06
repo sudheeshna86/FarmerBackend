@@ -135,7 +135,7 @@ export const getMyOffers = async (req, res) => {
     const offers = await Offer.find({ buyer: req.user._id, status: { $ne: "accepted" } })
       .populate({
         path: "listing",
-        select: "cropName category imageUrl pricePerKg location farmer",
+        select: "cropName category  quantity imageUrl pricePerKg location farmer",
         populate: {
           path: "farmer",
           model: "User",

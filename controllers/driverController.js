@@ -85,6 +85,7 @@ export const driverAcceptDelivery = async (req, res) => {
   try {
     const driverId = req.user._id;
 
+    // We need buyer phone to send the OTP
     let order = await Order.findById(req.params.id)
       .populate("buyer", "name phone")
       .populate("listing", "cropName location imageUrl")
@@ -92,50 +93,47 @@ export const driverAcceptDelivery = async (req, res) => {
 
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    console.log("Driver trying:", driverId);
-    console.log(
-      "Invited drivers:",
-      order.invitedDrivers.map(d => (d._id ? d._id.toString() : d.toString()))
-    );
-
+    // --- Validations ---
     const isInvited = order.invitedDrivers.some(
-      d => (d._id ? d._id.toString() : d.toString()) === driverId.toString()
+      (d) => (d._id ? d._id.toString() : d.toString()) === driverId.toString()
     );
 
     if (!isInvited) {
-      return res.status(403).json({
-        message: "You are not invited for this order"
-      });
+      return res.status(403).json({ message: "You are not invited for this order" });
     }
 
     if (order.driver && order.driver.toString() !== driverId.toString()) {
-      return res.status(400).json({
-        message: "Another driver already accepted"
-      });
+      return res.status(400).json({ message: "Another driver already accepted" });
     }
 
     if (order.status !== "awaiting_driver_accept") {
-      return res.status(400).json({
-        message: "Order is not awaiting driver acceptance"
-      });
+      return res.status(400).json({ message: "Order is not awaiting driver acceptance" });
     }
 
+    // --- Update Order State ---
     order.driver = driverId;
     order.status = "driver_assigned";
-
-    const otp = Math.floor(1000 + Math.random() * 9000).toString();
-    order.deliveryOTP = otp;
     order.driverAcceptedAt = new Date();
-
-    order.invitedDrivers = [];
+    order.invitedDrivers = []; // Clear invites
+    
+    // REMOVED: Manual OTP generation logic (Math.random)
+    // REMOVED: order.deliveryOTP = ...
 
     await order.save();
 
-    // send OTP to buyer phone (if sendOTP configured)
+    // --- Send OTP via Twilio ---
     try {
-      await sendOTP(order.buyer.phone, otp);
+      if (order.buyer && order.buyer.phone) {
+        console.log("otp is being sent")
+        await sendOTP(`+91${order.buyer.phone}`);
+        console.log(`✅ OTP sent to buyer: ${order.buyer.phone}`);
+      } else {
+        console.warn("⚠️ Buyer has no phone number, OTP not sent.");
+      }
     } catch (e) {
-      console.warn("sendOTP failed:", e.message);
+      console.error("❌ Twilio sendOTP failed:", e.message);
+      // Optional: You might want to return an error here, but usually, 
+      // we don't block the acceptance if SMS fails (driver can resend later).
     }
 
     const populated = await Order.findById(order._id)
@@ -147,7 +145,7 @@ export const driverAcceptDelivery = async (req, res) => {
       message: "Delivery accepted! OTP sent to buyer.",
       order: populated,
     });
-  
+
   } catch (error) {
     console.error("❌ driverAcceptDelivery error:", error.message);
     res.status(500).json({

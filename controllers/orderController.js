@@ -2,9 +2,8 @@
 import Offer from "../models/offerModel.js";
 import Order from "../models/Order.js";
 import mongoose from "mongoose";
-import { sendOTP } from "../utils/sendOTP.js";   // required
+import { verifyOTP } from "../utils/sendOTP.js";   // required
 import User from "../models/User.js";
-
 /* ----------------------------------------------------
    BUYER: Get My Orders
 -----------------------------------------------------*/
@@ -13,9 +12,10 @@ export const getMyOrders = async (req, res) => {
     const orders = await Order.find({ buyer: req.user._id })
       .populate({
         path: "listing",
-        populate: { path: "farmer", model: "User", select: "name phone" },
+        populate: { path: "farmer", model: "User", select: "name phone address" },
       })
-      .populate("farmer", "name phone")
+      .populate("farmer", "name phone address")
+      .populate("buyer", "name phone address")  // ⭐ Added buyer details
       .populate("offer")
       .populate("driver", "name phone")
       .sort({ createdAt: -1 });
@@ -29,13 +29,20 @@ export const getMyOrders = async (req, res) => {
   }
 };
 
+
 /* ----------------------------------------------------
    FARMER: Get My Orders
 -----------------------------------------------------*/
 export const getMyFarmerOrders = async (req, res) => {
   try {
     const orders = await Order.find({ farmer: req.user._id })
-      .populate("listing buyer offer")
+      .populate({
+        path: "listing",
+        populate: { path: "farmer", model: "User", select: "name phone address" }
+      })
+      .populate("buyer", "name phone address")
+      .populate("farmer", "name phone address")   // ⭐ Added farmer populate
+      .populate("offer")
       .populate("driver", "name phone")
       .populate("invitedDrivers", "name phone")
       .sort({ createdAt: -1 });
@@ -48,6 +55,7 @@ export const getMyFarmerOrders = async (req, res) => {
     });
   }
 };
+
 /* ----------------------------------------------------
    🧾 Get order receipt
 -----------------------------------------------------*/
@@ -55,6 +63,7 @@ export const getMyFarmerOrders = async (req, res) => {
 
 export const getOrderReceipt = async (req, res) => {
   try {
+    console.log("hii receipt")
     const order = await Order.findById(req.params.id)
       .populate("buyer", "_id name phone address")
       .populate("farmer", "_id name phone address")
@@ -63,7 +72,7 @@ export const getOrderReceipt = async (req, res) => {
     if (!order)
       return res.status(404).json({ message: "Order not found" });
 
-    if (order.status !== "paid" && order.status !== "completed") {
+    if (order.status !== "paid" && order.status !== "completed" && order.status !== "pending_payment"&& order.status !== "delivered" ) {
       return res.status(400).json({ message: "Receipt not available yet" });
     }
 
@@ -267,27 +276,48 @@ export const getAvailableDrivers = async (req, res) => {
 export const verifyDeliveryOTP = async (req, res) => {
   try {
     const { otp } = req.body;
-    const order = await Order.findById(req.params.id);
+    
+    // IMPORTANT: We must populate 'buyer' to access the phone number for Twilio verification
+    const order = await Order.findById(req.params.id).populate("buyer", "phone");
 
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (order.status !== "driver_assigned")
-      return res.status(400).json({
-        message: "Order not in delivery stage",
-      });
+    if (order.status !== "driver_assigned") {
+      return res.status(400).json({ message: "Order not in delivery stage" });
+    }
 
-    if (order.deliveryOTP !== otp)
-      return res.status(400).json({ message: "Invalid OTP" });
+    // --- Verify via Twilio ---
+    if (!order.buyer || !order.buyer.phone) {
+      return res.status(400).json({ message: "Buyer phone number missing" });
+    }
 
+    try {
+      console.log(order.buyer.phone);
+      console.log(otp)
+      const verificationCheck = await verifyOTP(`+91${order.buyer.phone}`, otp);
+
+      // Check if Twilio approved it
+      if (verificationCheck.status !== "approved") {
+        return res.status(400).json({ message: "Invalid OTP or Expired" });
+      }
+    } catch (err) {
+      console.error("Twilio Verify Error:", err.message);
+      return res.status(400).json({ message: "Invalid OTP", error: err.message });
+    }
+
+    // --- Success: Update Order ---
     order.isDelivered = true;
     order.deliveredAt = new Date();
-    order.deliveryOTP = null;
     order.status = "delivered";
+    
+    // REMOVED: order.deliveryOTP = null (field no longer exists)
 
     await order.save();
 
     res.json({ message: "Delivery confirmed", order });
+
   } catch (error) {
+    console.error("❌ verifyDeliveryOTP Error:", error);
     res.status(500).json({
       message: "Failed to verify OTP",
       error: error.message,

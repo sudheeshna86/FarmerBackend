@@ -37,7 +37,13 @@ app.use(morgan("dev"));
 //     allowedHeaders: ["Content-Type", "Authorization"],
 //   })
 // );
-app.use(cors());
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
+
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -50,6 +56,11 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/driver", driverRoutes);
 
 app.get('/', (req, res) => {
+//   console.log(
+//   "ACCOUNT:", process.env.TWILIO_ACCOUNT_SID,
+//   "AUTH:", process.env.TWILIO_AUTH_TOKEN,
+//   "VERIFY:", process.env.TWILIO_VERIFY_SERVICE_SID
+// );
   res.send('AgriConnect Backend is running!');
 });
 
