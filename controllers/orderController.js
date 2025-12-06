@@ -72,7 +72,7 @@ export const getOrderReceipt = async (req, res) => {
     if (!order)
       return res.status(404).json({ message: "Order not found" });
 
-    if (order.status !== "paid" && order.status !== "completed" && order.status !== "pending_payment"&& order.status !== "delivered" ) {
+    if (order.status !== "paid" && order.status !== "completed" && order.status !== "pending_payment"&& order.status !== "delivered" && order.status !== "awaiting_driver_accept") {
       return res.status(400).json({ message: "Receipt not available yet" });
     }
 
