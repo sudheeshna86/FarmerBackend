@@ -14,6 +14,7 @@ import buyerRoutes from './routes/buyerRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import offerRoutes from './routes/offerRoutes.js';
 import driverRoutes from './routes/driver.js';
+import paymentRoutes from "./routes/paymentRoutes.js";
 
 import path from "path";
 import { fileURLToPath } from "url";
@@ -54,6 +55,7 @@ app.use('/api/buyer', buyerRoutes);
 app.use('/api/offers', offerRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/driver", driverRoutes);
+app.use("/api/payments", paymentRoutes);
 
 app.get('/', (req, res) => {
 //   console.log(
