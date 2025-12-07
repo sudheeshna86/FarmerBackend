@@ -20,7 +20,7 @@ export const getFarmerOffers = async (req, res) => {
       .populate("buyer", "name phone email")
       .populate({
         path: "listing",
-        select: "cropName category imageUrl pricePerKg location farmer",
+        select: "cropName category imageUrl pricePerKg location farmer actualquantity",
         populate: { path: "farmer", select: "name phone" },
       })
       .sort({ createdAt: -1 });
@@ -42,22 +42,55 @@ export const acceptOffer = async (req, res) => {
       });
 
     if (!offer) return res.status(404).json({ message: "Offer not found" });
-    if (offer.listing.farmer._id.toString() !== req.user._id.toString())
-      return res.status(403).json({ message: "Unauthorized" });
 
-    // ✅ Mark offer as accepted
+    // Authorization check
+    if (offer.listing.farmer._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Unauthorized action on this offer" });
+    }
+
+    // Stock check
+    if (offer.listing.quantity < offer.quantity) {
+      return res.status(400).json({
+        message: `Insufficient stock! Listing only has ${offer.listing.quantity} kg.`,
+      });
+    }
+
+    // 🔹 DEFAULT final price (no counter offers)
+    let finalAcceptedPrice = offer.offeredPrice;
+
+    // 🔹 If status = countered → check latest buyer counter
+    if (offer.status === "countered" && offer.counterOffers.length > 0) {
+
+      const lastCounter = offer.counterOffers[offer.counterOffers.length - 1];
+
+      if (lastCounter.counteredBy !== "buyer") {
+        return res.status(400).json({
+          message: "Latest counter was not made by buyer, cannot accept",
+        });
+      }
+
+      finalAcceptedPrice = lastCounter.price;
+      offer.offeredPrice = finalAcceptedPrice; // update final price
+    }
+
+    // Deduct stock
+    offer.listing.quantity -= offer.quantity;
+    await offer.listing.save();
+
+    // Mark as accepted
     offer.status = "accepted";
     await offer.save();
 
-    // ✅ Check if order already exists
+    // Create order if not exists
     let order = await Order.findOne({ offer: offer._id });
+
     if (!order) {
       order = new Order({
         offer: offer._id,
         listing: offer.listing._id,
         farmer: offer.listing.farmer._id,
         buyer: offer.buyer._id,
-        finalPrice: offer.offeredPrice,
+        finalPrice: finalAcceptedPrice,
         quantity: offer.quantity,
         status: "pending_payment",
       });
@@ -65,10 +98,12 @@ export const acceptOffer = async (req, res) => {
     }
 
     res.status(200).json({
-      message: "✅ Offer accepted — Order created (Payment Pending)",
+      message: "Offer accepted, stock updated, and order created!",
       offer,
       order,
+      remainingStock: offer.listing.quantity,
     });
+
   } catch (error) {
     console.error("❌ acceptOffer error:", error);
     res.status(500).json({ message: "Server error", error: error.message });
@@ -97,25 +132,34 @@ export const rejectOffer = async (req, res) => {
 export const counterOffer = async (req, res) => {
   try {
     const { counterOfferPrice, notes } = req.body;
+
     const offer = await Offer.findById(req.params.id).populate("listing");
     if (!offer) return res.status(404).json({ message: "Offer not found" });
 
-    // Authorization check
+    // Authorization: only farmer can counter
     if (offer.listing.farmer.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Not authorized to counter this offer" });
+      return res.status(403).json({
+        message: "Not authorized to counter this offer",
+      });
     }
 
+    // Push new counter into array
+    offer.counterOffers.push({
+      price: counterOfferPrice,
+      counteredBy: "farmer",
+      timestamp: new Date(),
+    });
+
     offer.status = "countered";
-    offer.counterOfferPrice = counterOfferPrice;
     offer.notes = notes || "";
-    offer.lastActionBy = "farmer"; // 👈 Add this line
 
     await offer.save();
 
     res.status(200).json({
-      message: "Counter offer sent successfully by farmer",
+      message: "Farmer counter offer added successfully",
       offer,
     });
+
   } catch (error) {
     res.status(500).json({
       message: "Failed to send counter offer",
@@ -123,6 +167,7 @@ export const counterOffer = async (req, res) => {
     });
   }
 };
+
 
 
 /* -------------------------------------------------------------------------- */
@@ -201,16 +246,35 @@ export const acceptCounterByBuyer = async (req, res) => {
       });
 
     if (!offer) return res.status(404).json({ message: "Offer not found" });
-    if (offer.buyer._id.toString() !== req.user._id.toString())
-      return res.status(403).json({ message: "Unauthorized" });
 
-    // ✅ Finalize offer
+    if (offer.buyer._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    // 🟦 Must have at least 1 counter
+    if (!offer.counterOffers || offer.counterOffers.length === 0) {
+      return res.status(400).json({ message: "No counter offers to accept" });
+    }
+
+    // 🟦 Fetch last counter offer
+    const lastCounter = offer.counterOffers[offer.counterOffers.length - 1];
+
+    if (lastCounter.counteredBy !== "farmer") {
+      return res.status(400).json({
+        message: "Latest counter was not made by farmer",
+      });
+    }
+
+    // 🟩 Final price = last farmer counter
+    const finalAcceptedPrice = lastCounter.price;
+
     offer.status = "accepted";
-    offer.offeredPrice = offer.counterOfferPrice || offer.offeredPrice;
-    offer.counterOfferPrice = null;
+    offer.offeredPrice = finalAcceptedPrice;
+    offer.listing.quantity -= offer.quantity;
+
     await offer.save();
 
-    // ✅ Create order if missing
+    // 🟦 Check if order already exists
     let order = await Order.findOne({ offer: offer._id });
     if (!order) {
       order = new Order({
@@ -218,23 +282,28 @@ export const acceptCounterByBuyer = async (req, res) => {
         listing: offer.listing._id,
         farmer: offer.listing.farmer._id,
         buyer: offer.buyer._id,
-        finalPrice: offer.offeredPrice,
+        finalPrice: finalAcceptedPrice,
         quantity: offer.quantity,
         status: "pending_payment",
       });
+
       await order.save();
     }
 
     res.status(200).json({
-      message: "✅ Buyer accepted counter — Order created (Payment Pending)",
+      message: "Buyer accepted farmer's counter offer — Order created (Pending Payment)",
       offer,
       order,
     });
   } catch (error) {
     console.error("❌ acceptCounterByBuyer error:", error);
-    res.status(500).json({ message: "Error accepting counter", error: error.message });
+    res.status(500).json({
+      message: "Error accepting counter",
+      error: error.message,
+    });
   }
 };
+
 
 
 // ✅ Buyer rejects a farmer's counter offer
@@ -258,49 +327,64 @@ export const rejectCounterByBuyer = async (req, res) => {
   }
 };
 // ✅ Buyer sends a counter offer to the farmer
-// ✅ Buyer sends a counter offer (even if first time)
+// ✅ Buyer sends a counter offer (even if first time
 export const buyerCounterOffer = async (req, res) => {
   try {
     const { listingId, counterOfferPrice, quantity } = req.body;
 
     if (!listingId || !counterOfferPrice) {
-      return res.status(400).json({ message: "Listing ID and counter offer price are required" });
+      return res.status(400).json({
+        message: "Listing ID and counter offer price are required"
+      });
     }
 
-    // ✅ Find existing offer (if any)
+    // Check existing offer
     let offer = await Offer.findOne({
       buyer: req.user._id,
       listing: listingId,
     });
 
-    // 🆕 Create new if not found
+    // If no offer exists → Create new
     if (!offer) {
       offer = new Offer({
         listing: listingId,
         buyer: req.user._id,
         quantity: quantity || 1,
-        offeredPrice: counterOfferPrice,
-        counterOfferPrice,
+        offeredPrice: counterOfferPrice,     // initial price
         status: "countered",
         lastActionBy: "buyer",
+        counterOffers: [
+          {
+            price: counterOfferPrice,
+            counteredBy: "buyer"
+          }
+        ]
       });
+
       await offer.save();
+
       return res.status(201).json({
         message: "New counter offer created successfully",
         offer,
       });
     }
 
-    // ♻️ Update existing offer
-    offer.counterOfferPrice = counterOfferPrice;
+    // If offer exists → Push new counter offer to history
+    offer.counterOffers.push({
+      price: counterOfferPrice,
+      counteredBy: "buyer"
+    });
+
     offer.status = "countered";
     offer.lastActionBy = "buyer";
+
     await offer.save();
 
     res.status(200).json({
-      message: "Counter offer updated successfully by buyer",
+      message: "Buyer counter offer added successfully",
       offer,
     });
+
   } catch (error) {
     console.error("❌ Error in buyerCounterOffer:", error.message);
     res.status(500).json({
@@ -309,4 +393,5 @@ export const buyerCounterOffer = async (req, res) => {
     });
   }
 };
+
 

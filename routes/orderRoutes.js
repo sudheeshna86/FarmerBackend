@@ -13,6 +13,7 @@ import {
   getMyOrders,
   getOrderReceipt,
   getMyFarmerOrders,
+  cancelOrder
 } from "../controllers/orderController.js";
 
 const router = express.Router();
@@ -123,8 +124,9 @@ router.get("/drivers", protect, getAvailableDrivers);
 
 router.get("/:id", protect, getOrderById);
 router.get("/:id/receipt", protect, getOrderReceipt);
-
+router.put("/:id/cancel", protect, cancelOrder);
 router.patch("/:id/pay", protect, payForOrder);
+
 router.patch("/:id/assign-driver", protect, assignDriver);
 router.patch("/:id/verify-otp", protect, verifyDeliveryOTP);
 router.patch("/:id/release-payment", protect, releasePayment);

@@ -19,6 +19,10 @@ const farmerListingSchema = new mongoose.Schema({
     type: Number,
     required: [true, 'Please enter the quantity']
   },
+  actualquantity:{
+    type:Number,
+    required: true,
+  },
   pricePerKg: {
     type: Number,
     required: [true, 'Please enter the price per kg']

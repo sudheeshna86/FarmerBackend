@@ -49,10 +49,14 @@ const orderSchema = new mongoose.Schema(
         "otp_verified",
         "delivered",
         "completed",
+        "cancelled",
       ],
       default: "pending_payment",
     },
-
+    cancellationReason: {
+      type: String,
+      default: null,
+    },
     // Delivery address
     deliveryAddress: String,
 

@@ -20,10 +20,12 @@ const offerSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
-  counterOfferPrice: {
-    type: Number,
-    default: null,
-  },
+   counterOffers: [
+    {
+      price: { type: Number, required: true },
+      counteredBy: { type: String, enum: ["farmer", "buyer"], required: true },
+      timestamp: { type: Date, default: Date.now }
+    }],
   notes: {
     type: String,
     default: '',

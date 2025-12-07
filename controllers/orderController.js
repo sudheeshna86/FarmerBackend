@@ -4,9 +4,40 @@ import Order from "../models/Order.js";
 import mongoose from "mongoose";
 import { verifyOTP } from "../utils/sendOTP.js";   // required
 import User from "../models/User.js";
+import FarmerListing from "../models/FarmerListing.js";
 /* ----------------------------------------------------
    BUYER: Get My Orders
 -----------------------------------------------------*/
+export const cancelOrder = async (req, res) => {
+  try {
+    const { reason } = req.body; // Get reason from frontend
+    const order = await Order.findById(req.params.id);
+
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    // 1. Validation: Can only cancel if pending_payment
+    if (order.status !== "pending_payment") {
+      return res.status(400).json({ message: "Cannot cancel a paid or processed order." });
+    }
+
+    // 2. RESTORE STOCK to the listing
+    const listing = await FarmerListing.findById(order.listing);
+    if (listing) {
+      listing.quantity += order.quantity; // Add quantity back
+      await listing.save();
+    }
+
+    // 3. Update Order
+    order.status = "cancelled";
+    order.cancellationReason = reason || "No reason provided";
+    await order.save();
+
+    res.status(200).json({ message: "Order cancelled successfully", order });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to cancel order", error: error.message });
+  }
+};
 export const getMyOrders = async (req, res) => {
   try {
     const orders = await Order.find({ buyer: req.user._id })

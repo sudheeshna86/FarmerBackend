@@ -55,6 +55,7 @@ export const addListing = async (req, res) => {
       cropName,
       category,
       quantity,
+      actualquantity:quantity,
       pricePerKg,
       location,
       description,
