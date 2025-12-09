@@ -1,6 +1,44 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
+// --------------------------------
+// Address SubSchema
+// --------------------------------
+const addressSchema = new mongoose.Schema({
+  pincode: {
+    type: String,
+    required: true,
+  },
+  locality: {
+    type: String,
+    // required: true,
+  },
+  addressLine: {
+    type: String,
+    required: true,
+  },
+  city: {
+    type: String,
+    required: true,
+  },
+  state: {
+    type: String,
+    required: true,
+  },
+  type: {
+    type: String,
+    enum: ["Home", "Work", "Other"],
+    default: "Home",
+  },
+  isDefault: {
+    type: Boolean,
+    default: false,
+  },
+});
+
+// --------------------------------
+// User Schema
+// --------------------------------
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -35,11 +73,18 @@ const userSchema = new mongoose.Schema(
       enum: ["farmer", "buyer", "driver"],
       default: "buyer",
     },
-    address: {
-  type: String,
-  required: true
-},
 
+    // ⭐ Array of all saved addresses
+    alladdress: {
+      type: [addressSchema],
+      default: [],
+    },
+
+    // ⭐ Main Address (single formatted string)
+    address: {
+      type: String,
+      default: "",
+    },
 
     walletBalance: {
       type: Number,
@@ -64,23 +109,17 @@ const userSchema = new mongoose.Schema(
       default: false,
     },
 
-    // Optional fields for profile completion
-    address: {
-      type: String,
-      default: "",
-    },
     profileImage: {
-      type: String, // URL of profile picture
+      type: String,
     },
   },
   { timestamps: true }
 );
 
-//
-// 🔒 Middleware: Hash password before saving
-//
+// --------------------------------
+// Password Hash Middleware
+// --------------------------------
 userSchema.pre("save", async function (next) {
-  // Only hash password if modified or new
   if (!this.isModified("password")) return next();
 
   try {
@@ -92,17 +131,12 @@ userSchema.pre("save", async function (next) {
   }
 });
 
-
+// --------------------------------
+// Compare Password Method
+// --------------------------------
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
-
-// //
-// // 🧾 Virtual field for full transaction summary (optional usage)
-// //
-// userSchema.virtual("transactionCount").get(function () {
-//   return this.transactions.length;
-// });
 
 const User = mongoose.model("User", userSchema);
 export default User;
