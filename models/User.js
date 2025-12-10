@@ -11,28 +11,27 @@ const addressSchema = new mongoose.Schema({
   },
   locality: {
     type: String,
-    // required: true,
   },
   addressLine: {
-    type: String,
-    required: true,
+      type: String,
+      required: true,
   },
   city: {
-    type: String,
-    required: true,
+      type: String,
+      required: true,
   },
   state: {
-    type: String,
-    required: true,
+      type: String,
+      required: true,
   },
   type: {
-    type: String,
-    enum: ["Home", "Work", "Other"],
-    default: "Home",
+      type: String,
+      enum: ["Home", "Work", "Other"],
+      default: "Home",
   },
   isDefault: {
-    type: Boolean,
-    default: false,
+      type: Boolean,
+      default: false,
   },
 });
 
@@ -74,13 +73,24 @@ const userSchema = new mongoose.Schema(
       default: "buyer",
     },
 
+    // ⭐ Additional fields for DRIVER
+    vehicleNumber: {
+      type: String,
+      default: "",   // stays empty for non-driver roles
+    },
+
+    licenseNumber: {
+      type: String,
+      default: "",  // stays empty for non-driver roles
+    },
+
     // ⭐ Array of all saved addresses
     alladdress: {
       type: [addressSchema],
       default: [],
     },
 
-    // ⭐ Main Address (single formatted string)
+    // ⭐ Main Address
     address: {
       type: String,
       default: "",
@@ -132,7 +142,7 @@ userSchema.pre("save", async function (next) {
 });
 
 // --------------------------------
-// Compare Password Method
+// Compare Password
 // --------------------------------
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);

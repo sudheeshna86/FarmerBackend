@@ -2,6 +2,8 @@
 import fs from "fs";
 import FarmerListing from "../models/FarmerListing.js";
 import cloudinary from "../config/cloudinary.js";
+import Order from "../models/Order.js";
+import Offer from "../models/offerModel.js";
 
 // helper to upload local file to Cloudinary & optionally remove local file
 const uploadToCloudinary = async (filePath) => {
@@ -160,5 +162,102 @@ export const updateListing = async (req, res) => {
     res
       .status(500)
       .json({ message: "Server error while updating listing", error: error.message });
+  }
+};
+
+
+// 1. GET Stats
+ // Assuming you have an Order model
+
+// 1. GET Stats
+export const getFarmerStats = async (req, res) => {
+  try {
+    const farmerId = req.user._id; 
+
+    // 1. Active Listings
+    const activeListings = await FarmerListing.countDocuments({ 
+        farmer: farmerId, 
+        actualquantity: { $gt: 0 } 
+    });
+
+    // 2. Completed Orders (✅ FIXED with $in)
+    // Now matches if status is EITHER "Completed" OR "Delivered" (or "paid"/"delivered" based on your DB)
+    const completedOrders = await Order.countDocuments({ 
+        farmer: farmerId, 
+        status: { $in: ["Completed", "Delivered", "paid", "delivered"] } 
+    });
+
+    // 3. Pending Offers/Orders (✅ OPTIONAL: Added $in for flexibility)
+    // Matches "pending" or "pending_payment" or "awaiting driver"
+    const pendingOffers = await Order.countDocuments({ 
+        farmer: farmerId, 
+        status: { $in: ["pending", "pending_payment", "awaiting driver"] } 
+    });
+
+    // 4. Total Earnings (✅ FIXED with $in)
+    const earningsAgg = await Order.aggregate([
+      { 
+        $match: { 
+            farmer: farmerId, 
+            status: { $in: ["Completed", "Delivered", "paid", "delivered"] } 
+        } 
+      },
+      { 
+        $group: { 
+            _id: null, 
+            // 🚨 FIX: Changed '$totalAmount' to '$finalPrice' based on your DB screenshot
+            total: { $sum: "$finalPrice" } 
+        } 
+      } 
+    ]);
+    const totalEarnings = earningsAgg.length > 0 ? earningsAgg[0].total : 0;
+
+    res.json({
+      activeListings,
+      completedOrders,
+      pendingOffers,
+      totalEarnings
+    });
+
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    res.status(500).json({ message: "Error fetching stats" });
+  }
+};
+
+// 2. GET Recent Orders
+export const getRecentOrders = async (req, res) => {
+  try {
+    const farmerId = req.user._id;
+
+    const orders = await Order.find({ farmer: farmerId })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .populate("buyer", "name email")       // Get Buyer Details
+      .populate("listing", "cropName imageUrl") // Get Listing Details
+      .lean();
+
+    const formattedOrders = orders.map(order => {
+      return {
+        _id: order._id,
+        // 1. Try direct cropName, then populated listing name, then fallback
+        productName: order.cropName || (order.listing ? order.listing.cropName : "Unknown Crop"),
+        
+        // 2. Try direct buyerName, then populated buyer name, then fallback
+        buyerName: order.buyerName || (order.buyer ? order.buyer.name : "Unknown Buyer"),
+        
+        // 3. 🚨 FIX: Ensure totalAmount exists. Check your DB if it's named 'amount' or 'price' instead!
+        totalAmount: order.amountPaid || order.amount || 0,
+        
+        status: order.status || "Pending",
+        createdAt: order.createdAt
+      };
+    });
+
+    res.json(formattedOrders);
+
+  } catch (error) {
+    console.error("Error fetching recent orders:", error);
+    res.status(500).json({ message: "Error fetching orders" });
   }
 };

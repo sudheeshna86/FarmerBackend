@@ -5,7 +5,8 @@ import {
   updateUserProfile, 
   addAddress, 
   updateAddress, 
-  deleteAddress 
+  deleteAddress, 
+  setPrimaryAddress
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -17,6 +18,7 @@ router.put("/profile", protect, updateUserProfile);
 // Address Routes
 router.post("/address", protect, addAddress);
 router.put("/address/:id", protect, updateAddress);
+router.put("/address/:id/select", protect, setPrimaryAddress);
 router.delete("/address/:id", protect, deleteAddress);
 
 export default router;
