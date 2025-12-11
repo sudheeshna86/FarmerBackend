@@ -33,6 +33,8 @@ export const createRazorpayOrder = async (req, res) => {
     // 👇 1. UPDATE THE ORDER DATABASE FIRST
     // We update the finalPrice to match the frontend calculation
     order.finalPrice = amount; 
+    order.amountPaid=amount;
+    order.farmer.walletBalance+=amount;
     
     // If your schema has a field for delivery fee, save it too:
     order.deliveryFee = deliveryFee; 

@@ -8,6 +8,7 @@ import {
   driverAcceptDelivery,
   driverDeclineDelivery,
   completeDelivery,
+  getDriverEarnings
   // acceptDelivery
 } from "../controllers/driverController.js";
 
@@ -47,7 +48,7 @@ router.patch(
   requireRole("driver"),
   driverDeclineDelivery
 );
-
+router.get("/earnings", protect, getDriverEarnings);
 router.patch(
   "/complete/:id",
   protect,

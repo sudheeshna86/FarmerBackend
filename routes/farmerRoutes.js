@@ -9,7 +9,9 @@ import {
   deleteListing,
   updateListing,
   getFarmerStats,
-  getRecentOrders
+  getRecentOrders,
+  getFarmerEarnings
+  
 } from "../controllers/farmerController.js";
 
 const router = express.Router();
@@ -55,5 +57,6 @@ router.put(
 router.delete("/:id", protect, requireRole("farmer"), deleteListing);
 router.get("/stats", protect, getFarmerStats);
 router.get("/orders/recent", protect, getRecentOrders);
+router.get("/earnings", protect, getFarmerEarnings);
 
 export default router;

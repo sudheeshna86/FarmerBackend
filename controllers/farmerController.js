@@ -261,3 +261,40 @@ export const getRecentOrders = async (req, res) => {
     res.status(500).json({ message: "Error fetching orders" });
   }
 };
+export const getFarmerEarnings = async (req, res) => {
+  try {
+    const farmerId = req.user._id;
+
+    // 1. Fetch only Completed/Paid/Delivered orders
+    const orders = await Order.find({
+      farmer: farmerId,
+      status: { $in: ["Completed", "Delivered", "paid", "delivered", "completed"] }
+    })
+    .populate("buyer", "name")          // Get Buyer Name
+    .populate("listing", "cropName")    // Get Crop Name from Listing
+    .sort({ createdAt: -1 });           // Newest first
+
+    // 2. Format the data for the frontend
+    const formattedOrders = orders.map(order => ({
+      id: order._id,
+      crop: order.listing ? order.listing.cropName : "Unknown Crop",
+      buyerName: order.buyer ? order.buyer.name : "Unknown Buyer",
+      qty: order.quantity,
+      // Use finalPrice, fallback to amountPaid, fallback to 0
+      total: order.finalPrice || order.amountPaid || 0, 
+      createdAt: order.createdAt
+    }));
+
+    // 3. Calculate Total Earnings
+    const totalEarnings = formattedOrders.reduce((sum, order) => sum + order.total, 0);
+
+    res.json({
+      orders: formattedOrders,
+      totalEarnings
+    });
+
+  } catch (error) {
+    console.error("Error fetching earnings:", error);
+    res.status(500).json({ message: "Error fetching earnings" });
+  }
+};

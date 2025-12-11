@@ -1,5 +1,6 @@
 import Listing from '../models/FarmerListing.js';
 import Offer from '../models/offerModel.js';
+import Order from '../models/Order.js';
 
 // ✅ Get all active listings
 export const getAllListings = async (req, res) => {
@@ -80,3 +81,89 @@ export const makeOffer = async (req, res) => {
 //   }
 // };
 
+export const getBuyerDashboard = async (req, res) => {
+  try {
+    const buyerId = req.user._id;
+
+    // 1. Fetch ALL orders for this buyer
+    // Sorted by newest first so we can easily grab the recent ones
+    const allOrders = await Order.find({ buyer: buyerId })
+      .sort({ createdAt: -1 })
+      .populate("farmer", "name email phone") // Get Farmer Details
+      .populate("listing", "cropName imageUrl") // Get Product Details
+      .lean();
+
+    // 2. Define Status Categories
+    const ongoingStatuses = [
+      "pending_payment",
+      "paid",
+      "awaiting_driver_accept",
+      "driver_assigned",
+      "in_transit",
+      "otp_verified"
+    ];
+    
+    const completedStatuses = ["delivered", "completed"];
+    const cancelledStatuses = ["cancelled"];
+
+    // 3. Process Data
+    let totalSpend = 0;
+    const ongoingOrdersRaw = [];
+    const historyOrdersRaw = [];
+
+    allOrders.forEach((order) => {
+      // Calculate Spend: Only add if the order is paid/active (exclude cancelled/pending_payment)
+      if (
+        [...completedStatuses, ...ongoingStatuses].includes(order.status) && 
+        order.status !== "pending_payment"
+      ) {
+        totalSpend += (order.finalPrice || 0);
+      }
+
+      // Categorize Order
+      if (ongoingStatuses.includes(order.status)) {
+        ongoingOrdersRaw.push(order);
+      } else {
+        historyOrdersRaw.push(order); // Includes delivered, completed, cancelled
+      }
+    });
+
+    // 4. Format for Frontend
+    // Map to a clean structure matching your UI components
+    const formatOrder = (order) => ({
+      id: order._id,
+      product: order.listing ? order.listing.cropName : "Unknown Crop",
+      farmer: order.farmer ? order.farmer.name : "Unknown Seller",
+      amount: order.finalPrice || 0,
+      status: order.status,
+      date: order.createdAt,
+      // Add specific fields if needed
+      deliveryOTP: order.deliveryOTP, 
+      imageUrl: order.listing?.imageUrl || ""
+    });
+
+    const ongoingOrders = ongoingOrdersRaw.map(formatOrder);
+    const recentHistory = historyOrdersRaw.map(formatOrder);
+
+    // 5. Calculate Saved Suppliers (Mock logic or Count Unique Farmers)
+    // Here we just count how many unique farmers this buyer has bought from
+    const uniqueFarmers = new Set(allOrders.map(o => o.farmer?._id?.toString()));
+    const savedSuppliersCount = uniqueFarmers.size;
+
+    // 6. Send Response
+    res.json({
+      stats: {
+        totalOrders: allOrders.length,
+        ongoingOrders: ongoingOrders.length,
+        totalSpend, 
+        savedSuppliers: savedSuppliersCount
+      },
+      ongoingOrders,
+      recentHistory
+    });
+
+  } catch (error) {
+    console.error("Error in getBuyerDashboard:", error);
+    res.status(500).json({ message: "Server Error fetching dashboard" });
+  }
+};

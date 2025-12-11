@@ -63,11 +63,11 @@ export const getMyDeliveries = async (req, res) => {
       driver: driverId,
       status: { $in: ["driver_assigned", "in_transit", "otp_verified", "delivered"] },
     })
+      // 👇 THIS WAS MISSING OR INCOMPLETE IN YOUR PREVIOUS CODE
       .populate("listing", "cropName location imageUrl")
-      .populate("buyer", "name phone address")
-      .populate("farmer", "name phone")
-      .populate("driver", "name phone")
-      .sort({ createdAt: -1 });
+      .populate("buyer", "name phone address") // ✅ Added address
+      .populate("farmer", "name phone address") // ✅ Added address
+      .sort({ updatedAt: -1 });
 
     res.json(my);
   } catch (err) {
@@ -197,7 +197,7 @@ export const driverDeclineDelivery = async (req, res) => {
 export const getAvailableDeliveries = async (req, res) => {
   try {
     console.log("helllo")
-    const driverId = req.user._1d || req.user._id;
+    const driverId = req.user._id || req.user._id;
 
     const available = await Order.find({
       status: "awaiting_driver_accept",
@@ -270,7 +270,21 @@ export const completeDelivery = async (req, res) => {
         },
       },
     });
+const driverEarning = order.deliveryFee || 0;
 
+    if (driverEarning > 0) {
+      await User.findByIdAndUpdate(driverId, {
+        $inc: { walletBalance: driverEarning }, // Increment driver balance
+        $push: {
+          transactions: {
+            type: "credit",
+            amount: driverEarning,
+            description: `Delivery fee for Order #${String(order._id).slice(-6).toUpperCase()}`,
+            date: new Date(),
+          },
+        },
+      });
+    }
     // STEP 4️⃣ — REDUCE FARMER LISTING QUANTITY
     if (order.listing) {
       const listing = await FarmerListing.findById(order.listing._id);
@@ -298,5 +312,41 @@ export const completeDelivery = async (req, res) => {
       message: "Failed to complete delivery",
       error: err.message,
     });
+  }
+};
+export const getDriverEarnings = async (req, res) => {
+  try {
+    const driverId = req.user._id;
+
+    // 1. Fetch only completed/delivered orders for this driver
+    const orders = await Order.find({
+      driver: driverId, 
+      status: { $in: ["delivered", "completed"] }
+    })
+    .populate("buyer", "name address")   // Get Drop Location
+    .populate("farmer", "name address")  // Get Pickup Location
+    .sort({ updatedAt: -1 });            // Newest first
+
+    // 2. Format data & Include Earning
+    const formattedOrders = orders.map(order => ({
+      id: order._id,
+      pickupLocation: order.farmer ? order.farmer.address : "Unknown Pickup",
+      dropLocation: order.deliveryAddress || (order.buyer ? order.buyer.address : "Unknown Drop"),
+      date: order.updatedAt,
+      // 💰 Driver earns the Delivery Fee
+      earning: order.deliveryFee || 0 
+    }));
+
+    // 3. Calculate Total Earnings
+    const totalEarnings = formattedOrders.reduce((sum, order) => sum + order.earning, 0);
+
+    res.json({
+      orders: formattedOrders,
+      totalEarnings
+    });
+
+  } catch (error) {
+    console.error("Error fetching driver earnings:", error);
+    res.status(500).json({ message: "Error fetching earnings" });
   }
 };
